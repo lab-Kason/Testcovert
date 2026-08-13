@@ -3,11 +3,23 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from scipy.interpolate import make_interp_spline
+import os
 
-# ==================== 1. Load data from CSV ====================
+# ==================== 1. 加载数据（支持本地文件 + 网页上传） ====================
 @st.cache_data
-def load_raw_data():
+def load_raw_data_from_bytes(file_bytes):
+    """从上传的文件字节流加载数据"""
+    df = pd.read_csv(file_bytes)
+    return _build_raw_data(df)
+
+@st.cache_data
+def load_raw_data_from_local():
+    """从本地 data.csv 加载数据"""
     df = pd.read_csv('data.csv')
+    return _build_raw_data(df)
+
+def _build_raw_data(df):
+    """将 DataFrame 转换为 raw_data 字典结构"""
     raw_data = {}
     for day in df['day'].unique():
         raw_data[day] = {}
@@ -22,9 +34,26 @@ def load_raw_data():
             raw_data[day][plate] = matrix.tolist()
     return raw_data
 
-raw_data = load_raw_data()
+# --- 数据加载逻辑 ---
+if os.path.exists('data.csv'):
+    # 本地有文件，直接加载（方便本地测试）
+    raw_data = load_raw_data_from_local()
+    st.sidebar.success("✅ 已从本地 data.csv 加载数据")
+else:
+    # 本地没有文件，显示上传按钮（适合云端部署）
+    uploaded_file = st.sidebar.file_uploader(
+        "📤 请上传 data.csv 文件",
+        type=['csv'],
+        help="上传包含实验数据的 CSV 文件"
+    )
+    if uploaded_file is not None:
+        raw_data = load_raw_data_from_bytes(uploaded_file)
+        st.sidebar.success("✅ 数据上传成功！")
+    else:
+        st.sidebar.warning("⚠️ 请上传 data.csv 文件以继续")
+        st.stop()
 
-# ==================== 2. Static definitions ====================
+# ==================== 2. 静态定义 ====================
 blank_values = {1: 0.107, 3: 0.102, 5: 0.103, 7: 0.104}
 
 sample_positions = {
@@ -37,7 +66,7 @@ sample_positions = {
 
 days = sorted(raw_data.keys())
 
-# ==================== 3. Custom sort ====================
+# ==================== 3. 自定义排序 ====================
 def natural_sort_key(sample):
     if sample == "Control":
         return (0, 0)
@@ -46,7 +75,7 @@ def natural_sort_key(sample):
 
 samples = sorted(sample_positions.keys(), key=natural_sort_key)
 
-# ==================== 4. Compute all data ====================
+# ==================== 4. 计算所有数据 ====================
 @st.cache_data
 def compute_all_data():
     all_data = {}
@@ -124,7 +153,7 @@ show_errorbars = st.sidebar.checkbox("Show error bars (SD)", value=True)
 show_smooth = st.sidebar.checkbox("Show smooth trend lines", value=True)
 show_markers = st.sidebar.checkbox("Show raw data markers", value=True)
 
-# ==================== 6. Apply filters ====================
+# ==================== 6. 应用筛选 ====================
 control_final_od = all_data[CONTROL_SAMPLE][7]['mean']
 
 if filter_type == "Show all":
@@ -150,7 +179,7 @@ if not final_samples:
 final_samples = list(dict.fromkeys(final_samples))
 final_samples.sort(key=natural_sort_key)
 
-# ==================== 7. Plot ====================
+# ==================== 7. 绘图 ====================
 st.subheader("📈 Growth Curves (Interactive Plotly)")
 fig = go.Figure()
 
@@ -209,7 +238,7 @@ fig.update_xaxes(tickvals=days, ticktext=[f"Day {d}" for d in days])
 
 st.plotly_chart(fig, use_container_width=True)
 
-# ==================== 8. Data table ====================
+# ==================== 8. 数据表格 ====================
 st.subheader("📋 Filtered Data Details (Mean ± SD & Growth Rates)")
 
 if final_samples:
